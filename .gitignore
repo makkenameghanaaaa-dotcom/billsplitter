@@ -1,0 +1,30 @@
+# ── Dependencies ──
+node_modules/
+frontend/node_modules/
+
+# ── Build outputs ──
+frontend/dist/
+backend/target/
+
+# ── IDE ──
+.vscode/
+.idea/
+*.iml
+.antigravity/
+.agents/
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+
+# ── Environment ──
+.env
+.env.local
+.env.production
+
+# ── Logs ──
+*.log
+npm-debug.log*
+
+# ── Data ──
+data/
