@@ -12,29 +12,27 @@ import {
 import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyATrTMUYUQQYVASezplhFcNr09K3Q0onQQ",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "bill-splitter-54359.firebaseapp.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "bill-splitter-54359",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "bill-splitter-54359.firebasestorage.app",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "488654445848",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:488654445848:web:acc2ae06df98939d42126d",
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-D08YFGYMMW"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || ""
 };
 
 // Initialize Firebase App singleton
-const app = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
+const app = getApps().length > 0 
+  ? getApps()[0] 
+  : (firebaseConfig.apiKey ? initializeApp(firebaseConfig) : null);
 
-// Initialize Firebase Services
-export const auth = getAuth(app);
-export const db = getFirestore(app);
+// Initialize Firebase Services safely
+export const auth = app ? getAuth(app) : {};
+export const db = app ? getFirestore(app) : {};
 export const googleProvider = new GoogleAuthProvider();
 
 export const isFirebaseConfigured = () => {
-  return Boolean(
-    firebaseConfig.apiKey &&
-    firebaseConfig.projectId &&
-    !firebaseConfig.apiKey.includes('DemoDummy')
-  );
+  return Boolean(firebaseConfig.apiKey && firebaseConfig.projectId);
 };
 
 export {
