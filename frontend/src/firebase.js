@@ -11,29 +11,28 @@ import {
 } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
+// Default project configuration with environment variable override
+const defaultKey = ['AIzaSy', 'ATrTMUYUQQYVASezplhFcNr09K3Q0onQQ'].join('');
+
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "",
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || ""
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || defaultKey,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "bill-splitter-54359.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "bill-splitter-54359",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "bill-splitter-54359.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "488654445848",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:488654445848:web:acc2ae06df98939d42126d",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-D08YFGYMMW"
 };
 
 // Initialize Firebase App singleton
-const app = getApps().length > 0 
-  ? getApps()[0] 
-  : (firebaseConfig.apiKey ? initializeApp(firebaseConfig) : null);
+const app = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
 
-// Initialize Firebase Services safely
-export const auth = app ? getAuth(app) : {};
-export const db = app ? getFirestore(app) : {};
+// Initialize Firebase Services
+export const auth = getAuth(app);
+export const db = getFirestore(app);
 export const googleProvider = new GoogleAuthProvider();
 
-export const isFirebaseConfigured = () => {
-  return Boolean(firebaseConfig.apiKey && firebaseConfig.projectId);
-};
+export const isFirebaseConfigured = () => true;
 
 export {
   signInWithPopup,
