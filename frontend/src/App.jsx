@@ -8,8 +8,7 @@ import {
   createUserWithEmailAndPassword, 
   updateProfile,
   signOut, 
-  onAuthStateChanged,
-  isFirebaseConfigured
+  onAuthStateChanged
 } from './firebase';
 import { 
   subscribeToGroups, 
@@ -27,9 +26,10 @@ function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [formData, setFormData] = useState({ name: '', email: '', password: '' });
-  const [isLogin, setIsLogin] = useState(false);
-  const [message, setMessage] = useState(null);
+  const [isLogin, setIsLogin] = useState(true);
+  const [errorMessage, setErrorMessage] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [copiedDomain, setCopiedDomain] = useState(false);
 
   // Group State
   const [groups, setGroups] = useState([]);
@@ -42,6 +42,15 @@ function App() {
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [newMember, setNewMember] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [notification, setNotification] = useState(null);
+
+  // Auto-dismiss transient notification
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
 
   // Listen to Firebase Auth state
   useEffect(() => {
@@ -66,13 +75,12 @@ function App() {
       user.uid,
       (fetchedGroups) => {
         setGroups(fetchedGroups);
-        // If currently viewing a group, update its reference
         if (selectedGroup) {
           const updated = fetchedGroups.find(g => g.id === selectedGroup.id);
           if (updated) setSelectedGroup(updated);
         }
       },
-      (err) => setMessage(err.message)
+      (err) => setNotification({ type: 'error', text: err.message })
     );
 
     return () => unsubscribe();
@@ -87,7 +95,7 @@ function App() {
       (fetchedExpenses) => {
         setExpenses(fetchedExpenses);
       },
-      (err) => setMessage(err.message)
+      (err) => setNotification({ type: 'error', text: err.message })
     );
 
     return () => unsubscribe();
@@ -96,32 +104,32 @@ function App() {
   // Email / Password Authentication
   const handleAuth = async (e) => {
     e.preventDefault();
-    setMessage(null);
+    setErrorMessage(null);
     setActionLoading(true);
 
     try {
       if (isLogin) {
-        await signInWithEmailAndPassword(auth, formData.email, formData.password);
+        await signInWithEmailAndPassword(auth, formData.email.trim(), formData.password);
       } else {
-        const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
+        if (!formData.name.trim()) {
+          setErrorMessage({ title: 'Name required', text: 'Please enter your full name or nickname.' });
+          setActionLoading(false);
+          return;
+        }
+        if (formData.password.length < 6) {
+          setErrorMessage({ title: 'Weak Password', text: 'Password must be at least 6 characters.' });
+          setActionLoading(false);
+          return;
+        }
+        const userCredential = await createUserWithEmailAndPassword(auth, formData.email.trim(), formData.password);
         if (formData.name.trim()) {
           await updateProfile(userCredential.user, { displayName: formData.name.trim() });
         }
       }
       setFormData({ name: '', email: '', password: '' });
     } catch (err) {
-      console.error(err);
-      let errMsg = err.message;
-      if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password') {
-        errMsg = 'Invalid email or password.';
-      } else if (err.code === 'auth/email-already-in-use') {
-        errMsg = 'An account with this email already exists.';
-      } else if (err.code === 'auth/weak-password') {
-        errMsg = 'Password should be at least 6 characters.';
-      } else if (err.code === 'auth/invalid-email') {
-        errMsg = 'Please enter a valid email address.';
-      }
-      setMessage(errMsg);
+      console.error("Auth error:", err);
+      handleAuthError(err);
     } finally {
       setActionLoading(false);
     }
@@ -129,18 +137,67 @@ function App() {
 
   // Google OAuth Login
   const handleGoogleLogin = async () => {
-    setMessage(null);
+    setErrorMessage(null);
     setActionLoading(true);
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (err) {
-      console.error(err);
+      console.error("Google Auth error:", err);
       if (err.code !== 'auth/popup-closed-by-user') {
-        setMessage(err.message || 'Google sign-in failed.');
+        handleAuthError(err);
       }
     } finally {
       setActionLoading(false);
     }
+  };
+
+  // Map Firebase error codes to friendly UI messages
+  const handleAuthError = (err) => {
+    const currentDomain = window.location.hostname;
+    if (err.code === 'auth/unauthorized-domain') {
+      setErrorMessage({
+        isUnauthorizedDomain: true,
+        title: 'Unauthorized Domain in Firebase',
+        text: `Firebase blocks sign-ins from unrecognized domains. You need to add "${currentDomain}" to your Firebase Console.`,
+        domain: currentDomain
+      });
+    } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
+      setErrorMessage({
+        title: 'Invalid Credentials',
+        text: 'Incorrect email address or password. Please try again.'
+      });
+    } else if (err.code === 'auth/email-already-in-use') {
+      setErrorMessage({
+        title: 'Account Already Exists',
+        text: 'An account with this email already exists. Switch to "Sign In" to log in.'
+      });
+    } else if (err.code === 'auth/weak-password') {
+      setErrorMessage({
+        title: 'Weak Password',
+        text: 'Password should be at least 6 characters long.'
+      });
+    } else if (err.code === 'auth/invalid-email') {
+      setErrorMessage({
+        title: 'Invalid Email',
+        text: 'Please enter a valid email format (e.g. name@example.com).'
+      });
+    } else if (err.code === 'auth/network-request-failed') {
+      setErrorMessage({
+        title: 'Network Error',
+        text: 'Unable to connect to Firebase. Please check your internet connection.'
+      });
+    } else {
+      setErrorMessage({
+        title: 'Authentication Error',
+        text: err.message || 'An unexpected error occurred. Please try again.'
+      });
+    }
+  };
+
+  const copyDomainToClipboard = (domain) => {
+    navigator.clipboard.writeText(domain);
+    setCopiedDomain(true);
+    setTimeout(() => setCopiedDomain(false), 2500);
   };
 
   // Logout
@@ -166,9 +223,10 @@ function App() {
         members: [defaultMemberName]
       });
       setGroupData({ name: '', baseCurrency: 'USD' });
+      setNotification({ type: 'success', text: 'Group created successfully!' });
     } catch (err) {
       console.error(err);
-      setMessage('Failed to create group: ' + err.message);
+      setNotification({ type: 'error', text: 'Failed to create group: ' + err.message });
     }
   };
 
@@ -181,29 +239,31 @@ function App() {
       await deleteGroup(selectedGroup.id);
       setSelectedGroup(null);
       setExpenses([]);
+      setNotification({ type: 'success', text: 'Group deleted.' });
     } catch (err) {
       console.error(err);
-      setMessage('Failed to delete group: ' + err.message);
+      setNotification({ type: 'error', text: 'Failed to delete group: ' + err.message });
     }
   };
 
-  // Add Member to Current Group
+  // Add Member
   const handleAddMember = async (e) => {
     e.preventDefault();
     const memberName = newMember.trim();
     if (!memberName || !selectedGroup) return;
 
     if (selectedGroup.members?.includes(memberName)) {
-      setMessage(`"${memberName}" is already a member of this group.`);
+      setNotification({ type: 'error', text: `"${memberName}" is already a member.` });
       return;
     }
 
     try {
       await addMemberToGroup(selectedGroup.id, memberName);
       setNewMember('');
+      setNotification({ type: 'success', text: `Added ${memberName} to group.` });
     } catch (err) {
       console.error(err);
-      setMessage('Failed to add member: ' + err.message);
+      setNotification({ type: 'error', text: 'Failed to add member: ' + err.message });
     }
   };
 
@@ -229,9 +289,10 @@ function App() {
         currency: selectedGroup.baseCurrency || 'USD', 
         paidBy: selectedGroup.members?.[0] || '' 
       });
+      setNotification({ type: 'success', text: 'Expense recorded & split equally!' });
     } catch (err) {
       console.error(err);
-      setMessage('Failed to save expense: ' + err.message);
+      setNotification({ type: 'error', text: 'Failed to save expense: ' + err.message });
     }
   };
 
@@ -240,9 +301,10 @@ function App() {
     if (!selectedGroup) return;
     try {
       await deleteExpense(selectedGroup.id, expenseId);
+      setNotification({ type: 'success', text: 'Expense removed.' });
     } catch (err) {
       console.error(err);
-      setMessage('Failed to delete expense: ' + err.message);
+      setNotification({ type: 'error', text: 'Failed to delete expense: ' + err.message });
     }
   };
 
@@ -257,14 +319,13 @@ function App() {
 
     try {
       await settleAllDebts(selectedGroup.id);
-      setMessage('All balances have been settled!');
+      setNotification({ type: 'success', text: '🎉 All debts settled!' });
     } catch (err) {
       console.error(err);
-      setMessage('Failed to settle debts: ' + err.message);
+      setNotification({ type: 'error', text: 'Failed to settle debts: ' + err.message });
     }
   };
 
-  // Calculate Debts using greedy balance simplification
   const groupMembers = selectedGroup?.members || ['You'];
   const balances = selectedGroup 
     ? simplifyDebts(expenses, groupMembers, selectedGroup.baseCurrency || 'USD')
@@ -272,8 +333,9 @@ function App() {
 
   if (authLoading) {
     return (
-      <div className="app-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-        <div style={{ color: 'var(--text-muted)', fontSize: '1.125rem' }}>Loading BillSplitter...</div>
+      <div className="loading-screen">
+        <div className="loading-spinner"></div>
+        <p className="loading-text">Loading BillSplitter...</p>
       </div>
     );
   }
@@ -284,6 +346,12 @@ function App() {
   if (user && selectedGroup) {
     return (
       <div className="app-container">
+        {notification && (
+          <div className={`toast-notification toast-${notification.type}`}>
+            {notification.text}
+          </div>
+        )}
+
         <div className="detail-panel">
           <div className="detail-topbar">
             <button
@@ -291,40 +359,54 @@ function App() {
                 setSelectedGroup(null);
                 setExpenses([]);
               }}
-              className="btn-text"
+              className="btn-back"
             >
-              ← Back to Dashboard
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M19 12H5M12 19l-7-7 7-7"/>
+              </svg>
+              Dashboard
             </button>
-            <button onClick={handleGroupDelete} className="btn-danger">
+            <button onClick={handleGroupDelete} className="btn-danger-outline">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
               Delete Group
             </button>
           </div>
 
-          <div className="detail-header">
-            <div>
+          <div className="detail-header-card">
+            <div className="detail-header-info">
+              <span className="currency-pill">{selectedGroup.baseCurrency} Base</span>
               <h1 className="detail-title">{selectedGroup.name}</h1>
-              <p className="detail-subtitle">{groupMembers.length} Members</p>
+              <p className="detail-subtitle">{groupMembers.length} Members involved in splitting</p>
             </div>
-            <span className="badge">{selectedGroup.baseCurrency} Base</span>
           </div>
 
           {/* Members Section */}
-          <div className="members-section">
-            <h3 className="members-label">Group Members</h3>
-            <div className="members-list">
+          <div className="members-card">
+            <div className="members-header">
+              <h3 className="section-label">Group Members</h3>
+              <span className="count-badge">{groupMembers.length}</span>
+            </div>
+            <div className="members-wrap">
               {groupMembers.map((m, i) => (
-                <span key={i} className="member-badge">{m}</span>
+                <div key={i} className="member-chip">
+                  <div className="member-avatar">{m.charAt(0).toUpperCase()}</div>
+                  <span>{m}</span>
+                </div>
               ))}
             </div>
-            <form onSubmit={handleAddMember} className="member-form">
+            <form onSubmit={handleAddMember} className="member-add-form">
               <input
                 type="text"
-                placeholder="Friend's Name"
+                placeholder="Add friend by name (e.g. Maya, Sam)"
                 value={newMember}
                 onChange={e => setNewMember(e.target.value)}
                 required
               />
-              <button type="submit" className="btn-primary btn-primary--small">Add Member</button>
+              <button type="submit" className="btn-accent-sm">
+                + Add Member
+              </button>
             </form>
           </div>
 
@@ -333,7 +415,10 @@ function App() {
             {/* Expenses Card */}
             <div className="card">
               <div className="card-header">
-                <h3>Expenses ({expenses.length})</h3>
+                <div>
+                  <h3 className="card-title">Expenses</h3>
+                  <p className="card-subtitle">{expenses.length} recorded items</p>
+                </div>
                 <button
                   onClick={() => {
                     setShowExpenseForm(!showExpenseForm);
@@ -344,72 +429,93 @@ function App() {
                       paidBy: groupMembers[0] || ''
                     });
                   }}
-                  className="btn-ghost"
+                  className="btn-accent-sm"
                 >
-                  {showExpenseForm ? 'Cancel' : '+ Add Expense'}
+                  {showExpenseForm ? '✕ Close' : '+ Add Expense'}
                 </button>
               </div>
 
               {showExpenseForm && (
-                <form onSubmit={handleAddExpense} className="expense-form">
-                  <input
-                    type="text"
-                    placeholder="Description (e.g. Dinner, Hotel, Taxi)"
-                    value={expenseForm.description}
-                    onChange={e => setExpenseForm({ ...expenseForm, description: e.target.value })}
-                    required
-                  />
-                  <div className="expense-form-row">
+                <form onSubmit={handleAddExpense} className="expense-form-card">
+                  <div className="form-group">
+                    <label>Description</label>
                     <input
-                      type="number"
-                      step="0.01"
-                      placeholder="Amount"
-                      value={expenseForm.amount}
-                      onChange={e => setExpenseForm({ ...expenseForm, amount: e.target.value })}
+                      type="text"
+                      placeholder="e.g. Dinner at Bistro, Uber Ride, AirBnb"
+                      value={expenseForm.description}
+                      onChange={e => setExpenseForm({ ...expenseForm, description: e.target.value })}
                       required
                     />
+                  </div>
+
+                  <div className="expense-form-row">
+                    <div className="form-group" style={{ flex: 2 }}>
+                      <label>Amount</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="0.00"
+                        value={expenseForm.amount}
+                        onChange={e => setExpenseForm({ ...expenseForm, amount: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div className="form-group" style={{ flex: 1 }}>
+                      <label>Currency</label>
+                      <select
+                        value={expenseForm.currency}
+                        onChange={e => setExpenseForm({ ...expenseForm, currency: e.target.value })}
+                      >
+                        <option value="USD">USD ($)</option>
+                        <option value="EUR">EUR (€)</option>
+                        <option value="GBP">GBP (£)</option>
+                        <option value="INR">INR (₹)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Who Paid?</label>
                     <select
-                      value={expenseForm.currency}
-                      onChange={e => setExpenseForm({ ...expenseForm, currency: e.target.value })}
+                      value={expenseForm.paidBy || groupMembers[0]}
+                      onChange={e => setExpenseForm({ ...expenseForm, paidBy: e.target.value })}
+                      required
                     >
-                      <option value="USD">USD ($)</option>
-                      <option value="EUR">EUR (€)</option>
-                      <option value="GBP">GBP (£)</option>
-                      <option value="INR">INR (₹)</option>
+                      {groupMembers.map(m => (
+                        <option key={m} value={m}>{m} paid full amount</option>
+                      ))}
                     </select>
                   </div>
-                  <select
-                    value={expenseForm.paidBy || groupMembers[0]}
-                    onChange={e => setExpenseForm({ ...expenseForm, paidBy: e.target.value })}
-                    required
-                  >
-                    <option value="" disabled>Who paid?</option>
-                    {groupMembers.map(m => (
-                      <option key={m} value={m}>{m} paid</option>
-                    ))}
-                  </select>
+
                   <button type="submit" className="btn-primary btn-primary--block">
-                    Save & Split Equally
+                    Save Expense (Split Among {groupMembers.length} Members)
                   </button>
                 </form>
               )}
 
               {expenses.length === 0 ? (
-                <div className="empty-state">No expenses recorded yet. Click "+ Add Expense" above!</div>
+                <div className="empty-state">
+                  <div className="empty-icon">🧾</div>
+                  <p className="empty-title">No expenses yet</p>
+                  <p className="empty-desc">Click "+ Add Expense" to start tracking bills.</p>
+                </div>
               ) : (
-                <ul className="list-reset">
+                <ul className="expense-list">
                   {expenses.map(ex => (
-                    <li key={ex.id} className="expense-item">
-                      <div>
-                        <div className="expense-desc">{ex.description}</div>
-                        <div className="expense-meta">Paid by {ex.paidBy} • {ex.date}</div>
+                    <li key={ex.id} className="expense-row">
+                      <div className="expense-info">
+                        <div className="expense-name">{ex.description}</div>
+                        <div className="expense-sub">
+                          Paid by <strong className="highlight-payer">{ex.paidBy}</strong> • {ex.date}
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <div className="expense-amount">{ex.amount} {ex.currency}</div>
+                      <div className="expense-action-wrap">
+                        <div className="expense-val">
+                          {ex.amount} <span className="curr-tag">{ex.currency}</span>
+                        </div>
                         <button 
                           onClick={() => handleDeleteExpense(ex.id)} 
-                          className="btn-text" 
-                          style={{ color: '#ef4444', fontSize: '0.85rem' }}
+                          className="btn-icon-del" 
                           title="Delete expense"
                         >
                           ✕
@@ -423,26 +529,37 @@ function App() {
 
             {/* Balances Card */}
             <div className="card">
-              <h3>Settlement Balances</h3>
-              <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: 'var(--space-4)' }}>
-                Real-time debt simplification across currencies.
-              </p>
+              <div className="card-header">
+                <div>
+                  <h3 className="card-title">Settlement Summary</h3>
+                  <p className="card-subtitle">Optimized using greedy simplification</p>
+                </div>
+              </div>
+
               {balances.length === 0 ? (
-                <div className="empty-state">🎉 Everyone is settled up!</div>
+                <div className="empty-state">
+                  <div className="empty-icon">✨</div>
+                  <p className="empty-title">Everyone is settled up!</p>
+                  <p className="empty-desc">All expenses are balanced with zero pending debts.</p>
+                </div>
               ) : (
-                <ul className="list-reset">
+                <ul className="balance-list">
                   {balances.map((bal, idx) => (
-                    <li key={idx} className="balance-item">
+                    <li key={idx} className="balance-row">
                       <div className="balance-names">
-                        <strong>{bal.from}</strong> owes <strong>{bal.to}</strong>
+                        <span className="debtor">{bal.from}</span>
+                        <span className="arrow-tag">pays</span>
+                        <span className="creditor">{bal.to}</span>
                       </div>
-                      <span className="balance-amount">{bal.amount} {bal.currency}</span>
-                      <button
-                        className="btn-success"
-                        onClick={() => handleSettleDebts(bal)}
-                      >
-                        Settle
-                      </button>
+                      <div className="balance-action">
+                        <span className="balance-val">{bal.amount} {bal.currency}</span>
+                        <button
+                          className="btn-settle"
+                          onClick={() => handleSettleDebts(bal)}
+                        >
+                          Settle
+                        </button>
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -460,23 +577,46 @@ function App() {
   if (user) {
     return (
       <div className="app-container">
-        <nav className="navbar">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <h2 className="navbar-logo">💰 BillSplitter</h2>
-            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              {user.displayName || user.email}
-            </span>
+        {notification && (
+          <div className={`toast-notification toast-${notification.type}`}>
+            {notification.text}
           </div>
-          <button onClick={handleLogout} className="btn-logout">Logout</button>
-        </nav>
+        )}
 
-        <div className="dashboard">
-          <div className="create-card">
-            <h3>Start a New Group</h3>
-            <form onSubmit={handleCreateGroup} className="form-inline">
+        <header className="navbar">
+          <div className="navbar-brand">
+            <div className="brand-icon">💰</div>
+            <div>
+              <span className="brand-title">BillSplitter</span>
+              <span className="brand-tag">Cloud</span>
+            </div>
+          </div>
+
+          <div className="user-profile-menu">
+            <div className="user-avatar">
+              {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
+            </div>
+            <div className="user-info-text">
+              <span className="user-name">{user.displayName || 'Friend'}</span>
+              <span className="user-email">{user.email}</span>
+            </div>
+            <button onClick={handleLogout} className="btn-logout-clean">
+              Logout
+            </button>
+          </div>
+        </header>
+
+        <main className="dashboard-content">
+          <div className="create-group-hero">
+            <div className="hero-text">
+              <h2>Create a Group</h2>
+              <p>Organize shared bills for roommates, weekend trips, or group dinners.</p>
+            </div>
+
+            <form onSubmit={handleCreateGroup} className="create-group-form">
               <input
                 type="text"
-                placeholder="Group Name (e.g. Goa Trip, Apartment Rent, Dinner)"
+                placeholder="Group Name (e.g. Lisbon Trip, Flat 4B, Friday Dinner)"
                 value={groupData.name}
                 onChange={e => setGroupData({ ...groupData, name: e.target.value })}
                 required
@@ -490,133 +630,248 @@ function App() {
                 <option value="INR">INR (₹)</option>
                 <option value="GBP">GBP (£)</option>
               </select>
-              <button type="submit" className="btn-primary">Create Group</button>
+              <button type="submit" className="btn-primary">
+                + Create Group
+              </button>
             </form>
           </div>
 
-          <h2 className="section-title">Your Groups</h2>
-          <div className="group-grid">
-            {groups.length === 0 ? (
-              <p className="empty-text">No groups found yet. Create your first group above!</p>
-            ) : (
-              groups.map(g => (
+          <div className="groups-section-header">
+            <h3>Your Active Groups</h3>
+            <span className="count-badge">{groups.length}</span>
+          </div>
+
+          {groups.length === 0 ? (
+            <div className="empty-dashboard">
+              <div className="empty-icon">👥</div>
+              <p className="empty-title">No groups created yet</p>
+              <p className="empty-desc">Create your first group above to start adding expenses and splitting costs.</p>
+            </div>
+          ) : (
+            <div className="group-grid">
+              {groups.map(g => (
                 <div
                   key={g.id}
-                  className="group-item"
+                  className="group-card-modern"
                   onClick={() => setSelectedGroup(g)}
                 >
-                  <h3>{g.name}</h3>
-                  <p>Base Currency: {g.baseCurrency}</p>
-                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                    {g.members?.length || 1} members
-                  </p>
+                  <div className="group-card-top">
+                    <span className="group-curr-badge">{g.baseCurrency}</span>
+                    <span className="group-member-count">{g.members?.length || 1} members</span>
+                  </div>
+                  <h4 className="group-card-name">{g.name}</h4>
+                  <div className="group-card-bottom">
+                    <span className="group-view-link">Open Group →</span>
+                  </div>
                 </div>
-              ))
-            )}
-          </div>
-        </div>
+              ))}
+            </div>
+          )}
+        </main>
       </div>
     );
   }
 
   /* ═══════════════════════════════════════════
-     VIEW 3: Auth View (Sign In / Sign Up)
+     VIEW 3: Redesigned State-of-the-Art Auth View
      ═══════════════════════════════════════════ */
   return (
-    <div className="app-container auth-wrapper">
-      <div className="auth-card">
-        <h1 className="auth-logo">💰 BillSplitter</h1>
-        <p className="auth-tagline">Split expenses, not friendships.</p>
+    <div className="auth-ambient-wrap">
+      {/* Background Decorative Glow Orbs */}
+      <div className="glow-orb glow-orb--1"></div>
+      <div className="glow-orb glow-orb--2"></div>
+      <div className="glow-orb glow-orb--3"></div>
 
-        {message && <div className="auth-alert">{message}</div>}
+      <div className="auth-box-wrapper">
+        <div className="auth-card-modern">
+          {/* Header Branding */}
+          <div className="auth-brand-head">
+            <div className="brand-badge-icon">💰</div>
+            <h1 className="auth-title">BillSplitter</h1>
+            <p className="auth-subtitle">
+              {isLogin 
+                ? 'Welcome back! Sign in to access your shared expenses.' 
+                : 'Create an account to start splitting expenses seamlessly.'}
+            </p>
+          </div>
 
-        <form onSubmit={handleAuth} className="auth-form">
-          {!isLogin && (
-            <div className="form-group">
-              <label htmlFor="name">Your Name</label>
-              <input
-                id="name"
-                type="text"
-                placeholder="Alex Johnson"
-                value={formData.name}
-                onChange={e => setFormData({ ...formData, name: e.target.value })}
-                required={!isLogin}
-              />
+          {/* Segmented Pill Tabs for Login vs Signup */}
+          <div className="segmented-auth-toggle">
+            <button 
+              type="button"
+              className={`toggle-tab ${isLogin ? 'active' : ''}`}
+              onClick={() => {
+                setIsLogin(true);
+                setErrorMessage(null);
+              }}
+            >
+              Sign In
+            </button>
+            <button 
+              type="button"
+              className={`toggle-tab ${!isLogin ? 'active' : ''}`}
+              onClick={() => {
+                setIsLogin(false);
+                setErrorMessage(null);
+              }}
+            >
+              Create Account
+            </button>
+          </div>
+
+          {/* Specialized Error / Unauthorized Domain Banner */}
+          {errorMessage && (
+            <div className="auth-error-banner">
+              <div className="error-banner-header">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" y1="8" x2="12" y2="12"/>
+                  <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                <strong>{errorMessage.title}</strong>
+              </div>
+              <p className="error-banner-text">{errorMessage.text}</p>
+              
+              {errorMessage.isUnauthorizedDomain && (
+                <div className="domain-help-box">
+                  <div className="domain-pill">
+                    <code>{errorMessage.domain}</code>
+                    <button 
+                      type="button" 
+                      onClick={() => copyDomainToClipboard(errorMessage.domain)} 
+                      className="btn-copy-domain"
+                    >
+                      {copiedDomain ? '✓ Copied!' : 'Copy Domain'}
+                    </button>
+                  </div>
+                  <p className="domain-help-steps">
+                    <strong>Quick Fix:</strong> Open Firebase Console → Authentication → <strong>Settings</strong> tab → <strong>Authorized domains</strong> → Click <em>Add domain</em> and paste the copied domain.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
-          <div className="form-group">
-            <label htmlFor="email">Email address</label>
-            <input
-              id="email"
-              type="email"
-              placeholder="alex@example.com"
-              value={formData.email}
-              onChange={e => setFormData({ ...formData, email: e.target.value })}
-              required
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="password">Password</label>
-            <div className="password-input-wrap">
-              <input
-                id="password"
-                type={showPassword ? 'text' : 'password'}
-                placeholder="••••••••"
-                value={formData.password}
-                onChange={e => setFormData({ ...formData, password: e.target.value })}
-                required
-              />
-              <button
-                type="button"
-                className="password-toggle"
-                onClick={() => setShowPassword(!showPassword)}
-                tabIndex={-1}
-              >
-                {showPassword ? 'Hide' : 'Show'}
-              </button>
-            </div>
-          </div>
-
-          <button type="submit" className="btn-primary btn-primary--block" disabled={actionLoading}>
-            {actionLoading ? 'Please wait...' : (isLogin ? 'Log In' : 'Create Account')}
-          </button>
-
-          <div className="auth-switch">
-            <span className="auth-switch-text">
-              {isLogin ? "Don't have an account?" : 'Already have an account?'}
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                setIsLogin(!isLogin);
-                setMessage(null);
-              }}
-              className="auth-switch-btn"
-            >
-              {isLogin ? 'Sign up' : 'Log in'}
-            </button>
-          </div>
-        </form>
-
-        <div className="auth-divider">OR</div>
-
-        <div className="auth-google-wrap">
+          {/* Google Sign-in Button */}
           <button 
             type="button" 
             onClick={handleGoogleLogin} 
-            className="btn-google"
+            className="btn-google-modern"
             disabled={actionLoading}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" style={{ marginRight: '8px' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24">
               <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
               <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
               <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
               <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
             </svg>
-            Sign in with Google
+            <span>Continue with Google</span>
           </button>
+
+          <div className="modern-divider">
+            <span>or use email</span>
+          </div>
+
+          {/* Form */}
+          <form onSubmit={handleAuth} className="modern-auth-form">
+            {!isLogin && (
+              <div className="input-field-wrap">
+                <label htmlFor="name">Full Name</label>
+                <div className="input-with-icon">
+                  <svg className="field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                  </svg>
+                  <input
+                    id="name"
+                    type="text"
+                    placeholder="Alex Johnson"
+                    value={formData.name}
+                    onChange={e => setFormData({ ...formData, name: e.target.value })}
+                    required={!isLogin}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="input-field-wrap">
+              <label htmlFor="email">Email Address</label>
+              <div className="input-with-icon">
+                <svg className="field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                  <polyline points="22,6 12,13 2,6"/>
+                </svg>
+                <input
+                  id="email"
+                  type="email"
+                  placeholder="name@example.com"
+                  value={formData.email}
+                  onChange={e => setFormData({ ...formData, email: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="input-field-wrap">
+              <label htmlFor="password">Password</label>
+              <div className="input-with-icon">
+                <svg className="field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+                <input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder={isLogin ? '••••••••' : 'At least 6 characters'}
+                  value={formData.password}
+                  onChange={e => setFormData({ ...formData, password: e.target.value })}
+                  required
+                />
+                <button
+                  type="button"
+                  className="btn-eye-toggle"
+                  onClick={() => setShowPassword(!showPassword)}
+                  tabIndex={-1}
+                >
+                  {showPassword ? (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                      <line x1="1" y1="1" x2="23" y2="23"/>
+                    </svg>
+                  ) : (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                      <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            <button 
+              type="submit" 
+              className="btn-submit-modern" 
+              disabled={actionLoading}
+            >
+              {actionLoading ? (
+                <span className="btn-loading-flex">
+                  <span className="spinner-mini"></span>
+                  Processing...
+                </span>
+              ) : (
+                isLogin ? 'Sign In to Dashboard →' : 'Create Your Free Account →'
+              )}
+            </button>
+          </form>
+
+          {/* Features highlight footer */}
+          <div className="auth-feature-pills">
+            <span>⚡ Instant Live Sync</span>
+            <span>•</span>
+            <span>💱 Multi-Currency</span>
+            <span>•</span>
+            <span>🧠 Greedy Split</span>
+          </div>
         </div>
       </div>
     </div>
