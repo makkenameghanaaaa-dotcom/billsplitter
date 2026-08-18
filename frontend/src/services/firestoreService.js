@@ -9,7 +9,6 @@ import {
   deleteDoc, 
   query, 
   where, 
-  orderBy, 
   onSnapshot, 
   serverTimestamp, 
   arrayUnion, 
@@ -24,17 +23,20 @@ export function subscribeToGroups(userId, onUpdate, onError) {
   if (!userId) return () => {};
   
   const groupsRef = collection(db, 'groups');
-  const q = query(
-    groupsRef, 
-    where('createdBy', '==', userId),
-    orderBy('createdAt', 'desc')
-  );
+  // Simple equality query - no composite index required
+  const q = query(groupsRef, where('createdBy', '==', userId));
 
   return onSnapshot(q, (snapshot) => {
     const groups = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }));
+    // Sort in memory (newest first)
+    groups.sort((a, b) => {
+      const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+      const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+      return timeB - timeA;
+    });
     onUpdate(groups);
   }, (err) => {
     console.error("Error subscribing to groups:", err);
@@ -95,9 +97,8 @@ export function subscribeToExpenses(groupId, onUpdate, onError) {
   if (!groupId) return () => {};
 
   const expensesRef = collection(db, 'groups', groupId, 'expenses');
-  const q = query(expensesRef, orderBy('createdAt', 'desc'));
 
-  return onSnapshot(q, (snapshot) => {
+  return onSnapshot(expensesRef, (snapshot) => {
     const expenses = snapshot.docs.map(doc => {
       const data = doc.data();
       return {
@@ -105,6 +106,12 @@ export function subscribeToExpenses(groupId, onUpdate, onError) {
         ...data,
         date: data.date || (data.createdAt?.toDate ? data.createdAt.toDate().toLocaleDateString() : new Date().toLocaleDateString())
       };
+    });
+    // Sort in memory (newest first)
+    expenses.sort((a, b) => {
+      const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+      const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+      return timeB - timeA;
     });
     onUpdate(expenses);
   }, (err) => {
