@@ -66,10 +66,24 @@ App runs on `http://localhost:5173`
 | `JWT_SECRET` | Secret key for JWT signing |
 | `GOOGLE_CLIENT_ID` | Google OAuth Client ID |
 
-**Frontend** (`.env`):
-| Variable | Description |
-|---|---|
-| `VITE_API_URL` | Backend API base URL |
+**Frontend** (`.env` or Vercel Environment Variables):
+| Variable | Description | Default / Example |
+|---|---|---|
+| `VITE_API_URL` | Backend API base URL | `http://localhost:8080` / `https://your-backend.up.railway.app` |
+| `VITE_GOOGLE_CLIENT_ID` | Google OAuth Client ID | Built-in demo client ID |
+
+## 🚀 Deploying to Vercel
+
+1. **Import the repository** into Vercel.
+2. If prompted:
+   - **Framework Preset**: Vite
+   - **Root Directory**: `./` (or `frontend`)
+   - **Build Command**: `npm run build`
+   - **Output Directory**: `frontend/dist` (or `dist` if root directory is set to `frontend`)
+3. **Set Environment Variables** in Vercel Project Settings:
+   - `VITE_API_URL`: URL of your deployed backend (e.g. on Railway/Render)
+   - `VITE_GOOGLE_CLIENT_ID`: (Optional) Your Google OAuth Client ID
+4. Click **Deploy**.
 
 ## 📁 Project Structure
 
