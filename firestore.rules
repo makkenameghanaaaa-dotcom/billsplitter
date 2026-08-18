@@ -1,0 +1,16 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // User must be authenticated to interact with groups
+    match /groups/{groupId} {
+      allow read, update, delete: if request.auth != null;
+      allow create: if request.auth != null && request.resource.data.createdBy == request.auth.uid;
+      
+      // Expenses subcollection inside groups
+      match /expenses/{expenseId} {
+        allow read, write, delete: if request.auth != null;
+      }
+    }
+  }
+}

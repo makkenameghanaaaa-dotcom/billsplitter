@@ -109,30 +109,48 @@
   color: var(--accent-hover);
 }
 
-/* Password field wrapper */
-.password-wrapper {
+.password-wrapper,
+.password-input-wrap {
   position: relative;
   width: 100%;
 }
 
-.password-toggle {
-  position: absolute;
-  right: var(--space-3);
-  top: 50%;
-  transform: translateY(-50%);
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: var(--space-1);
+.auth-alert {
+  padding: var(--space-3) var(--space-4);
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  margin-bottom: var(--space-4);
+  text-align: center;
+}
+
+.btn-google {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-muted);
-  transition: color var(--transition);
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  transition: all var(--transition);
 }
 
-.password-toggle:hover {
-  color: var(--text-secondary);
+.btn-google:hover {
+  background: var(--bg-surface);
+  border-color: var(--border-hover);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-google:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* ── Buttons ── */
